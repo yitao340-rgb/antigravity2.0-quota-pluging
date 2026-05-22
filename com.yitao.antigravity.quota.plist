@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.yitao.antigravity.quota</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>-u</string>
+        <string>/Users/yitao/.gemini/antigravity/scratch/antigravity2.0-quota-pluging/injector.py</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/yitao/Library/Application Support/Antigravity/DevToolsActivePort</string>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/yitao/.gemini/antigravity/scratch/antigravity2.0-quota-pluging/launchd_output.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/yitao/.gemini/antigravity/scratch/antigravity2.0-quota-pluging/launchd_error.log</string>
+</dict>
+</plist>
