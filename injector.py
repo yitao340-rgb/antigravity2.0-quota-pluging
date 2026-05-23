@@ -145,9 +145,17 @@ def update_credits_on_page(port, path, credits_val):
 
 def main():
     print("🚀 Starting Antigravity 2.0 Quota Progress Bar injection daemon...")
+    db_path = "/Users/yitao/Library/Application Support/Antigravity/User/globalStorage/state.vscdb"
     
     last_port = None
     consecutive_failures = 0
+    
+    # 优化状态缓存变量
+    last_target_ws_url = None
+    is_quota_injected = False
+    last_db_mtime = 0
+    last_credits_val = -1
+    iteration_counter = 0
     
     while True:
         # Read the current port from DevToolsActivePort
@@ -163,13 +171,16 @@ def main():
             if consecutive_failures > 10:
                 print("❌ DevToolsActivePort missing for a while. App probably closed. Exiting daemon.")
                 break
-            time.sleep(2)
+            time.sleep(5)
             continue
             
         if port != last_port:
             print(f"📡 Detected DevTools active port: {port}")
             last_port = port
             consecutive_failures = 0
+            # 端口变化时，重置所有缓存以确保能重新建立连接
+            last_target_ws_url = None
+            is_quota_injected = False
             
         try:
             response = urllib.request.urlopen(f"http://localhost:{port}/json", timeout=2.0)
@@ -214,30 +225,63 @@ def main():
             if target_ws_url:
                 path = target_ws_url.split(f"localhost:{port}")[1]
                 
-                # Retrieve current credits from sqlite db
-                credits_val = get_credits_from_db()
+                # 检测 Target 是否发生重载/改变
+                if target_ws_url != last_target_ws_url:
+                    print(f"🔄 Target switched to: '{target_title}' ({target_url})")
+                    last_target_ws_url = target_ws_url
+                    is_quota_injected = False
                 
-                # Check if quota is loaded
-                if not is_quota_loaded(port, path):
-                    print(f"⚡ Quota not active on '{target_title}' ({target_url}). Injecting quota.js...")
-                    
-                    # Read fresh quota.js code
+                # 只有在未注入，或者每 5 次循环（25秒）的周期巡检时，才真正发起 CDP V8 状态查询
+                should_detect = (not is_quota_injected) or (iteration_counter % 5 == 0)
+                
+                # 读取积分文件最后修改时间，避免无意义的高频 SQLite 数据库读取与磁盘 I/O
+                current_mtime = 0
+                import os
+                if os.path.exists(db_path):
                     try:
-                        with open('/Users/yitao/.gemini/antigravity/scratch/antigravity2.0-quota-pluging/quota.js', 'r') as f:
-                            js_code = f.read()
-                            
-                        # Set window.__antigravityCredits before running quota.js
-                        update_credits_on_page(port, path, credits_val)
+                        current_mtime = os.path.getmtime(db_path)
+                    except Exception:
+                        pass
+                
+                # 检测积分是否确实变动，如变动则读取并准备同步到视口
+                credits_changed = False
+                credits_val = last_credits_val
+                
+                if current_mtime != last_db_mtime or last_credits_val == -1:
+                    last_db_mtime = current_mtime
+                    credits_val = get_credits_from_db()
+                    if credits_val != last_credits_val:
+                        last_credits_val = credits_val
+                        credits_changed = True
+                
+                # 执行注入与状态检查逻辑
+                if should_detect:
+                    is_loaded = is_quota_loaded(port, path)
+                    if not is_loaded:
+                        print(f"⚡ Quota not active on '{target_title}' ({target_url}). Injecting quota.js...")
                         
-                        success = inject_quota(port, path, js_code)
-                        if success:
-                            print(f"✨ Quota Progress Bar injection completed successfully!")
-                        else:
-                            print("⚠️ Quota injection failed.")
-                    except Exception as e:
-                        print(f"❌ Error reading/injecting quota.js: {e}")
-                else:
-                    # Keep credits updated on page
+                        # Read fresh quota.js code
+                        try:
+                            with open('/Users/yitao/.gemini/antigravity/scratch/antigravity2.0-quota-pluging/quota.js', 'r') as f:
+                                js_code = f.read()
+                                
+                            # Set window.__antigravityCredits before running quota.js
+                            update_credits_on_page(port, path, credits_val)
+                            
+                            success = inject_quota(port, path, js_code)
+                            if success:
+                                print(f"✨ Quota Progress Bar injection completed successfully!")
+                                is_quota_injected = True
+                            else:
+                                print("⚠️ Quota injection failed.")
+                        except Exception as e:
+                            print(f"❌ Error reading/injecting quota.js: {e}")
+                    else:
+                        is_quota_injected = True
+                        if credits_changed:
+                            update_credits_on_page(port, path, credits_val)
+                elif credits_changed:
+                    # 在极静默周期中，仅在积分确实改变时才利用 CDP 更新积分全局变量，从而彻底阻断打字卡顿
                     update_credits_on_page(port, path, credits_val)
             
         except Exception as e:
@@ -246,7 +290,8 @@ def main():
                 print(f"❌ Connection to DevTools failed consistently: {e}. Exiting daemon.")
                 break
                 
-        time.sleep(3)
+        iteration_counter += 1
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
